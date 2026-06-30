@@ -81,9 +81,58 @@
     background-color: rgba(255, 82, 82, 0.18);
 }
 
-[data-theme="light"] #model-badge {
+/* Model select toolbar */
+.model-select-toolbar {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    padding: 4px 22px 4px 10px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    background-color: rgba(255, 255, 255, 0.06);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%23aaa' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 7px center;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 180px;
+    font-family: inherit;
+    line-height: 1.4;
+}
+
+.model-select-toolbar:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+}
+
+.model-select-toolbar:focus-visible {
+    outline: 1px solid var(--accent-border);
+    outline-offset: -1px;
+}
+
+.model-select-toolbar option {
+    background-color: var(--surface-primary);
+    color: var(--text-primary);
+    font-size: 12px;
+}
+
+[data-theme="light"] .model-select-toolbar {
     background-color: rgba(0, 0, 0, 0.05);
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-color: rgba(0, 0, 0, 0.08);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+}
+
+[data-theme="light"] .model-select-toolbar:hover {
+    background-color: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme="light"] .model-select-toolbar option {
+    background-color: #fff;
+    color: #1a1a2e;
 }
 
 [data-theme="light"] .quick-action-btn:hover {
@@ -707,27 +756,6 @@ html {
     100% {
         opacity: 0;
     }
-}
-
-/* Model badge */
-#model-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    padding: 4px 8px;
-    border-radius: 8px;
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-primary);
-    background: transparent;
-    border: none;
-    cursor: default;
-    white-space: nowrap;
-}
-
-#model-badge svg {
-    opacity: 0.6;
-    flex-shrink: 0;
 }
 
 /* Clear history button */

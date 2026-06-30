@@ -13,9 +13,7 @@ export function createContext({
     const contextMode = getContextMode();
     imageButton.classList.remove("active", "content-mode");
 
-    const currentModelDisplay = document.getElementById(
-      "current-model-display",
-    );
+    const modelSelectToolbar = document.getElementById("model-select-toolbar");
     const existingRefreshButton = document.querySelector(".refresh-button");
     if (existingRefreshButton) existingRefreshButton.remove();
 
@@ -28,28 +26,26 @@ export function createContext({
         messageInput.placeholder = "Ask about this page...";
         break;
     }
-    if (currentModelDisplay) currentModelDisplay.textContent = getModelLabel();
 
     if (contextMode === "content") {
       checkContentScriptAvailability().then((availability) => {
         if (!availability.available) {
-          if (currentModelDisplay) {
-            currentModelDisplay.textContent = `${getModelLabel()} (Content unavailable)`;
-            currentModelDisplay.style.color = "#ff6b6b";
+          if (modelSelectToolbar) {
+            modelSelectToolbar.style.color = "#ff6b6b";
           }
           addRefreshButton();
-        } else if (currentModelDisplay) {
-          currentModelDisplay.style.color = "";
+        } else if (modelSelectToolbar) {
+          modelSelectToolbar.style.color = "";
         }
       });
-    } else if (currentModelDisplay) {
-      currentModelDisplay.style.color = "";
+    } else if (modelSelectToolbar) {
+      modelSelectToolbar.style.color = "";
     }
   }
 
   function addRefreshButton() {
-    const modelBadge = document.getElementById("model-badge");
-    if (!modelBadge || !modelBadge.isConnected) return;
+    const modelSelectToolbar = document.getElementById("model-select-toolbar");
+    if (!modelSelectToolbar || !modelSelectToolbar.isConnected) return;
 
     const refreshButton = document.createElement("button");
     refreshButton.className = "refresh-button";
@@ -84,7 +80,7 @@ export function createContext({
       }
     });
 
-    modelBadge.after(refreshButton);
+    modelSelectToolbar.after(refreshButton);
   }
 
   function cycleContextMode() {

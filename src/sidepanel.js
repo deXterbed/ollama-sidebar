@@ -2,9 +2,15 @@ import { parseMarkdown } from "./modules/markdown.js";
 import {
   extractPageContent,
   checkContentScriptAvailability,
+  fetchUrlContent,
+  extractUrls,
 } from "./modules/content.js";
 import { createStorage } from "./modules/storage.js";
-import { fetchStreamingReply, fetchModels } from "./modules/api.js";
+import {
+  fetchStreamingReply,
+  fetchModels,
+  fetchToolCalls,
+} from "./modules/api.js";
 import {
   showLoading,
   hideLoading,
@@ -16,6 +22,25 @@ import {
 import { createContext } from "./modules/context.js";
 
 const DEFAULT_OLLAMA_HOST = "http://localhost:11434";
+
+const WEB_FETCH_TOOL = {
+  type: "function",
+  function: {
+    name: "web_fetch",
+    description:
+      "Fetch and extract text content from a webpage. Use this when the user asks about a specific URL, link, or webpage that you don't already have context for. The extracted text will be provided back to you so you can answer questions about it.",
+    parameters: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "The full URL to fetch, including https://",
+        },
+      },
+      required: ["url"],
+    },
+  },
+};
 
 document.addEventListener("DOMContentLoaded", async () => {
   const messageInput = document.getElementById("message-input");
@@ -40,6 +65,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   let selectedModel = "";
 
   const modelSelectEl = document.getElementById("model-select");
+  const modelSelectToolbarEl = document.getElementById("model-select-toolbar");
 
   function populateModelSelect(selectEl, models, currentId) {
     selectEl.innerHTML = "";
@@ -50,6 +76,11 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (m.id === currentId) opt.selected = true;
       selectEl.appendChild(opt);
     });
+  }
+
+  function populateAllModelSelects(models, currentId) {
+    populateModelSelect(modelSelectEl, models, currentId);
+    populateModelSelect(modelSelectToolbarEl, models, currentId);
   }
 
   function getModelLabel() {
@@ -194,7 +225,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         selectedModel = MODELS[0].id;
         await chrome.storage.local.set({ selectedModel });
       }
-      populateModelSelect(modelSelectEl, MODELS, selectedModel);
+      populateAllModelSelects(MODELS, selectedModel);
       messageInput.disabled = false;
       showPageContext();
       updateClearHistoryVisibility();
@@ -217,10 +248,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (result.ollamaHost) ollamaHost = result.ollamaHost;
   if (result.selectedModel) selectedModel = result.selectedModel;
 
-  document.getElementById("ollama-retry-button").addEventListener(
-    "click",
-    connectToOllama,
-  );
+  document
+    .getElementById("ollama-retry-button")
+    .addEventListener("click", connectToOllama);
 
   // Create context mode management (needs to be before updateContextModeUI call)
   const { updateContextModeUI, cycleContextMode, clearShortcutMode } =
@@ -576,9 +606,18 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   });
 
-  // Model selection change handler
+  // Model selection change handler (settings)
   modelSelectEl.addEventListener("change", async () => {
     selectedModel = modelSelectEl.value;
+    modelSelectToolbarEl.value = selectedModel;
+    await chrome.storage.local.set({ selectedModel });
+    updateContextModeUI();
+  });
+
+  // Model selection change handler (toolbar)
+  modelSelectToolbarEl.addEventListener("change", async () => {
+    selectedModel = modelSelectToolbarEl.value;
+    modelSelectEl.value = selectedModel;
     await chrome.storage.local.set({ selectedModel });
     updateContextModeUI();
   });
@@ -645,15 +684,94 @@ document.addEventListener("DOMContentLoaded", async () => {
       const streamingMessageId = Date.now().toString();
       const streamingMessageElement = addStreamingMessage(streamingMessageId);
 
-      // Get streaming reply
+      let messages = null;
+
+      // Step 1: Check if model wants to call tools (non-streaming)
+      try {
+        const toolResult = await fetchToolCalls({
+          message,
+          content,
+          model,
+          ollamaHost,
+          conversationHistory,
+          tools: [WEB_FETCH_TOOL],
+        });
+
+        if (toolResult) {
+          // Execute tool calls
+          messages = toolResult.messages;
+          messages.push(toolResult.assistantMessage);
+
+          for (const toolCall of toolResult.toolCalls) {
+            if (toolCall.function?.name === "web_fetch") {
+              let args = toolCall.function.arguments;
+              if (typeof args === "string") {
+                try {
+                  args = JSON.parse(args);
+                } catch {
+                  args = {};
+                }
+              }
+              showContextLoading(`Fetching ${args.url}...`);
+              const result = await fetchUrlContent(args.url || "");
+              hideContextLoading();
+              messages.push({
+                role: "tool",
+                content:
+                  result.content ||
+                  `Error: ${result.error || "Failed to fetch page"}`,
+                name: toolCall.function.name,
+              });
+            }
+          }
+        }
+      } catch (toolError) {
+        // Tool calling not supported by model or failed — fall back to normal streaming
+        console.warn("Tool call failed, falling back:", toolError);
+      }
+
+      // Fallback: if model didn't use tools, eagerly fetch URLs ourselves
+      if (!messages) {
+        const urls = extractUrls(message);
+        if (urls.length > 0) {
+          const [tab] = await chrome.tabs.query({
+            active: true,
+            currentWindow: true,
+          });
+          const currentTabUrl = tab?.url || "";
+          const externalUrls = urls.filter((u) => u !== currentTabUrl);
+          if (externalUrls.length > 0) {
+            showContextLoading(
+              `Fetching ${externalUrls.length} linked page(s)...`,
+            );
+            const results = await Promise.allSettled(
+              externalUrls.map((u) => fetchUrlContent(u)),
+            );
+            for (const result of results) {
+              if (result.status === "fulfilled" && result.value.content) {
+                content = content
+                  ? content +
+                    `\n\n--- Content from ${result.value.url} ---\n\n${result.value.content}`
+                  : `--- Content from ${result.value.url} ---\n\n${result.value.content}`;
+              } else if (result.status === "rejected") {
+                console.error("Failed to fetch URL:", result.reason);
+              }
+            }
+            hideContextLoading();
+          }
+        }
+      }
+
+      // Step 2: Stream the final response (with tool results if any)
       const reply = await fetchStreamingReply({
-        message,
-        content,
         streamingMessageId,
         model,
         ollamaHost,
-        conversationHistory,
         onStream: updateStreamingContent,
+        messages,
+        message,
+        content,
+        conversationHistory,
       });
 
       // Hide typing indicator

@@ -71,7 +71,9 @@ The model is user-selectable in Settings, populated dynamically from `GET /api/t
 - Endpoints: `POST /api/chat` for chat completions, `GET /api/tags` for the local model list
 - Streaming: Ollama streams newline-delimited JSON objects (`{"message":{"content":"..."},"done":false}`), not SSE — parsed line by line in `readStream()` in `api.js`
 - No authentication — Ollama has no API key concept
-- No tool-calling support — most locally-served models don't support it reliably
+- **Tool calling**: Supported via the native `tools` array on `/api/chat`. Some models (Qwen 2.5, Mistral, Llama 3.1+) support it, others don't. The extension uses a two-step approach: non-streaming request with tools to detect tool calls, execute them, then streaming request with results.
+- **Tool call arguments format**: `tool_calls[].function.arguments` may be a pre-parsed JSON object *or* a JSON string depending on the model and Ollama version. Always check `typeof args === "string"` before parsing.
+- **Fallback for non-tool models**: When a model doesn't return `tool_calls`, the extension falls back to eagerly extracting URLs from the message, fetching them via `fetchUrlContent`, and prepending the content to the prompt.
 - **CORS gotcha**: Ollama validates the `Origin` header against an allowlist. `chrome-extension://<id>` isn't allowed by default, so requests fail with `403 Forbidden` unless the user sets `OLLAMA_ORIGINS=chrome-extension://*` (or the specific extension ID) and restarts Ollama. `api.js` detects this and surfaces a clear in-UI message rather than a generic failure.
 - **Connection-refused gotcha**: if Ollama isn't running, `fetch()` throws a `TypeError`, not an HTTP error — `describeFetchError()` in `api.js` catches this specifically and tells the user to run `ollama serve`.
 
@@ -152,6 +154,7 @@ Version lives in **two** files that must be kept in sync: `package.json` and `sr
 ## CSS / Rendering Gotchas
 
 - `src/styles/sidepanel.css` styles `message-content table { display: block; overflow-x: auto; }`. Table cells used `white-space: nowrap`, which causes inline code snippets to get truncated/clipped in the narrow side panel. Use `white-space: normal` + `word-wrap: break-word` for table `th`/`td` so code and text wrap properly.
+- The toolbar model dropdown (`#model-select-toolbar`) is a real `<select>` styled to look like a pill badge. To make it look clickable, it needs `background-color`, `border`, and a custom SVG arrow via `background-image`. The default browser `<select>` styling on a dark background makes the arrow invisible without a custom image.
 
 ## Build Gotchas
 

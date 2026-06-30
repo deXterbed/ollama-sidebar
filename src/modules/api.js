@@ -26,15 +26,45 @@ async function ollamaFetch(ollamaHost, path, options) {
       const errorJson = JSON.parse(errorData);
       errorMessage = errorJson.error || "Ollama request failed";
     } catch {
-      errorMessage = errorData || `Ollama request failed with status ${response.status}`;
+      errorMessage =
+        errorData || `Ollama request failed with status ${response.status}`;
     }
     throw new Error(errorMessage);
   }
   return response;
 }
 
+function buildMessages({ message, content, conversationHistory }) {
+  const messages = [
+    {
+      role: "system",
+      content:
+        "You are a helpful AI assistant running locally via Ollama. You may be provided with webpage content from the user's current tab or from linked pages in their message. Use this context to answer questions. If you don't have content for a specific page, say so clearly. You can also use the `web_fetch` tool to fetch additional pages if needed.",
+    },
+  ];
+
+  conversationHistory.forEach((msg) => {
+    messages.push({
+      role: msg.isUser ? "user" : "assistant",
+      content: msg.content,
+    });
+  });
+
+  if (content) {
+    messages.push({
+      role: "user",
+      content: `Here is the content from my current webpage:\n\n${content}\n\nPlease use this context to help answer my question.`,
+    });
+  }
+
+  messages.push({ role: "user", content: message });
+  return messages;
+}
+
 export async function fetchModels(ollamaHost) {
-  const response = await ollamaFetch(ollamaHost, "/api/tags", { method: "GET" });
+  const response = await ollamaFetch(ollamaHost, "/api/tags", {
+    method: "GET",
+  });
   const data = await response.json();
   return (data.models || []).map((m) => ({ id: m.name, label: m.name }));
 }
@@ -73,43 +103,50 @@ async function readStream(response, streamingMessageId, onStream) {
   return fullContent;
 }
 
-export async function fetchStreamingReply({
+export async function fetchToolCalls({
   message,
   content,
-  streamingMessageId,
   model,
   ollamaHost,
   conversationHistory,
-  onStream,
+  tools,
 }) {
-  const messages = [
-    {
-      role: "system",
-      content:
-        "You are a helpful AI assistant running locally via Ollama. You may be provided context from the user's current webpage to help answer their questions more effectively. Focus on the main content, articles, text, and meaningful information from the webpage. Provide clear, concise responses that directly address the user's question based on the webpage content.",
-    },
-  ];
-
-  conversationHistory.forEach((msg) => {
-    messages.push({
-      role: msg.isUser ? "user" : "assistant",
-      content: msg.content,
-    });
-  });
-
-  if (content) {
-    messages.push({
-      role: "user",
-      content: `Here is the content from my current webpage:\n\n${content}\n\nPlease use this context to help answer my question. If I ask for a summary, summarize the main content from this webpage.`,
-    });
-  }
-
-  messages.push({ role: "user", content: message });
+  const messages = buildMessages({ message, content, conversationHistory });
 
   const response = await ollamaFetch(ollamaHost, "/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages, stream: true }),
+    body: JSON.stringify({ model, messages, stream: false, tools }),
+  });
+
+  const data = await response.json();
+  if (data.message?.tool_calls?.length > 0) {
+    return {
+      toolCalls: data.message.tool_calls,
+      assistantMessage: data.message,
+      messages,
+    };
+  }
+  return null;
+}
+
+export async function fetchStreamingReply({
+  streamingMessageId,
+  model,
+  ollamaHost,
+  onStream,
+  messages,
+  message,
+  content,
+  conversationHistory,
+}) {
+  const finalMessages =
+    messages || buildMessages({ message, content, conversationHistory });
+
+  const response = await ollamaFetch(ollamaHost, "/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model, messages: finalMessages, stream: true }),
   });
 
   return readStream(response, streamingMessageId, onStream);

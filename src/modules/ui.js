@@ -31,7 +31,7 @@ export function hideLoading() {
 
 export function showContextLoading(message) {
   const inputContainer = document.getElementById("input-container");
-  const modelBadge = document.getElementById("model-badge");
+  const modelSelectToolbar = document.getElementById("model-select-toolbar");
 
   hideContextLoading();
 
@@ -39,8 +39,8 @@ export function showContextLoading(message) {
   contextLoading.className = "context-loading";
   contextLoading.textContent = message;
 
-  if (modelBadge && modelBadge.isConnected) {
-    modelBadge.before(contextLoading);
+  if (modelSelectToolbar && modelSelectToolbar.isConnected) {
+    modelSelectToolbar.before(contextLoading);
   } else if (inputContainer) {
     inputContainer.appendChild(contextLoading);
   }
@@ -52,18 +52,15 @@ export function hideContextLoading() {
 }
 
 export function showTypingIndicator(model) {
-  const modelBadge = document.getElementById("model-badge");
-  const currentModelDisplay = document.getElementById("current-model-display");
+  const modelSelectToolbar = document.getElementById("model-select-toolbar");
   const messageInput = document.getElementById("message-input");
   const sendButton = document.querySelector(".send-button");
 
-  if (currentModelDisplay) {
-    currentModelDisplay.textContent = `${model} is thinking...`;
-  }
-  if (modelBadge) {
-    modelBadge.style.animation = "typingPulse 2s ease-in-out infinite";
-    modelBadge.style.position = "relative";
-    modelBadge.style.zIndex = "1001";
+  if (modelSelectToolbar) {
+    modelSelectToolbar.disabled = true;
+    modelSelectToolbar.style.animation = "typingPulse 2s ease-in-out infinite";
+    modelSelectToolbar.style.position = "relative";
+    modelSelectToolbar.style.zIndex = "1001";
   }
   if (messageInput) {
     messageInput.disabled = true;
@@ -73,18 +70,15 @@ export function showTypingIndicator(model) {
 }
 
 export function hideTypingIndicator(modelLabel) {
-  const modelBadge = document.getElementById("model-badge");
-  const currentModelDisplay = document.getElementById("current-model-display");
+  const modelSelectToolbar = document.getElementById("model-select-toolbar");
   const messageInput = document.getElementById("message-input");
   const sendButton = document.querySelector(".send-button");
 
-  if (currentModelDisplay) {
-    currentModelDisplay.textContent = modelLabel || "Assistant";
-  }
-  if (modelBadge) {
-    modelBadge.style.animation = "";
-    modelBadge.style.position = "";
-    modelBadge.style.zIndex = "";
+  if (modelSelectToolbar) {
+    modelSelectToolbar.disabled = false;
+    modelSelectToolbar.style.animation = "";
+    modelSelectToolbar.style.position = "";
+    modelSelectToolbar.style.zIndex = "";
   }
   if (messageInput) {
     messageInput.disabled = false;

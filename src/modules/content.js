@@ -2,22 +2,19 @@ export async function extractPageContent() {
   try {
     const response = await Promise.race([
       new Promise((resolve) => {
-        chrome.runtime.sendMessage(
-          { action: "extractContent" },
-          (response) => {
-            if (chrome.runtime.lastError) {
-              console.error("Runtime error:", chrome.runtime.lastError);
-              resolve({
-                content: null,
-                error: chrome.runtime.lastError.message,
-              });
-            } else {
-              resolve(
-                response || { content: null, error: "No response received" },
-              );
-            }
-          },
-        );
+        chrome.runtime.sendMessage({ action: "extractContent" }, (response) => {
+          if (chrome.runtime.lastError) {
+            console.error("Runtime error:", chrome.runtime.lastError);
+            resolve({
+              content: null,
+              error: chrome.runtime.lastError.message,
+            });
+          } else {
+            resolve(
+              response || { content: null, error: "No response received" },
+            );
+          }
+        });
       }),
       new Promise((resolve) => {
         setTimeout(() => {
@@ -87,5 +84,97 @@ export async function checkContentScriptAvailability() {
     }
   } catch (error) {
     return { available: false, reason: error.message };
+  }
+}
+
+// Extract URLs from a text message
+export function extractUrls(text) {
+  const urlRegex = /(https?:\/\/[^\s<>"{}|\\^`[\]]+)/gi;
+  const matches = text.match(urlRegex) || [];
+  return [...new Set(matches)];
+}
+
+// Fetch a URL and extract text content using DOMParser
+export async function fetchUrlContent(url) {
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+    });
+    if (!response.ok) {
+      return {
+        url,
+        content: null,
+        error: `HTTP ${response.status}`,
+      };
+    }
+    const html = await response.text();
+    if (!html || html.length < 100) {
+      return { url, content: null, error: "Empty response" };
+    }
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, "text/html");
+
+    // Remove script, style, nav, header, footer elements
+    const elementsToRemove = doc.querySelectorAll(
+      "script, style, noscript, iframe, embed, object, nav, header, footer, .nav, .header, .footer, .sidebar, .menu",
+    );
+    elementsToRemove.forEach((el) => el.remove());
+
+    const contentSelectors = [
+      "main",
+      "article",
+      '[role="main"]',
+      ".content",
+      ".main-content",
+      "#content",
+      "#main",
+      ".post-content",
+      ".entry-content",
+      ".article-content",
+      ".page-content",
+      ".text-content",
+      ".body-content",
+    ];
+
+    let content = "";
+    let mainElement = null;
+    for (const selector of contentSelectors) {
+      const element = doc.querySelector(selector);
+      if (element && element.textContent.trim().length > 100) {
+        mainElement = element;
+        break;
+      }
+    }
+    if (!mainElement) {
+      mainElement = doc.body;
+    }
+
+    content = mainElement.textContent || "";
+    content = content
+      .replace(/\s+/g, " ")
+      .replace(/\n\s*\n/g, "\n")
+      .trim();
+
+    const maxLength = 6000;
+    if (content.length > maxLength) {
+      content = content.substring(0, maxLength) + "...";
+    }
+
+    const title = doc.title || "";
+    const metadata = `Page: ${title}\nURL: ${url}\n\n`;
+    const finalContent = metadata + content;
+
+    if (finalContent.length < 100) {
+      return { url, content: null, error: "Insufficient content extracted" };
+    }
+    return { url, content: finalContent, error: null };
+  } catch (error) {
+    console.error(`Failed to fetch ${url}:`, error);
+    return { url, content: null, error: error.message };
   }
 }
