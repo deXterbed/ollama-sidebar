@@ -5,7 +5,8 @@ A Chrome extension that brings your local Ollama models directly into your brows
 ## ✨ Features
 
 - **🤖 Local AI Conversations**: Chat with any model you've pulled into Ollama, directly in your browser
-- **🔀 Model Selection**: Pick your preferred model in Settings — the list is populated live from your local Ollama instance
+- **🔀 Model Selection**: Pick your model from the toolbar dropdown or in Settings — the list is populated live from your local Ollama instance
+- **🌐 Web Fetch Tool Calling**: Ask about any URL and the model can fetch and read the page content (via Ollama's native tool calling or eager URL fetching for non-tool models)
 - **📄 Page Content Analysis**: Ask questions about any webpage content
 - **⚡ Quick Actions**: One-click buttons to summarize the page or suggest questions
 - **🔄 Real-time Streaming**: See responses being generated in real-time
@@ -17,13 +18,16 @@ A Chrome extension that brings your local Ollama models directly into your brows
 
 ## 🎯 How It Works
 
-1. **Install Ollama**: Get it from [ollama.com](https://ollama.com) and pull at least one model (e.g. `ollama pull qwen3`)
+1. **Install Ollama**: Get it from [ollama.com](https://ollama.com) and pull at least one model (e.g. `ollama pull qwen2.5`)
 2. **Allow the extension origin**: Set `OLLAMA_ORIGINS=chrome-extension://*` in your environment and restart Ollama (see [Requirements](#-requirements))
 3. **Install the Extension**: Load it unpacked from `dist/` (see [Development](#️-development))
-4. **Choose Context Mode** (click the toolbar icon to cycle):
+4. **Choose a Model**: Use the toolbar dropdown to select from your locally installed models
+5. **Choose Context Mode** (click the toolbar icon to cycle):
    - **No Context** — General conversations with your selected model
    - **Content Mode** — Analyzes webpage text and prepends it to your question
-5. **Ask Questions**: Get responses based on the current page, generated entirely on your machine
+6. **Ask Questions**: Get responses based on the current page, or paste any URL to ask about it
+   - Tool-capable models (Qwen 2.5, Mistral, Llama 3.1+) can use the `web_fetch` tool to read pages on demand
+   - Other models get URLs fetched eagerly and prepended to the prompt automatically
 
 ## 🎨 Perfect For
 
@@ -92,6 +96,18 @@ The extension has three main parts:
 - **Content script** (`content.js`) — injected into web pages to extract text content
 
 Messages flow: `Sidepanel ↔ Background ↔ Content Script ↔ Web Page`
+
+### Web Fetch Tool Calling
+
+For models that support Ollama's native tool calling (Qwen 2.5, Mistral, Llama 3.1+):
+
+1. User sends a message containing a URL
+2. Extension sends a non-streaming `tools` request to the model
+3. Model may call the `web_fetch` tool with the URL
+4. Extension fetches the page, parses HTML, extracts clean text, and feeds it back as a `tool` message
+5. Extension streams the final response with the fetched content included
+
+For models that don't support tool calling, URLs are detected eagerly via regex and fetched before the streaming request begins.
 
 ### Loading in Chrome
 
