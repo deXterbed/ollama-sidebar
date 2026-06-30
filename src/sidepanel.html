@@ -1,0 +1,268 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Ollama Sidebar</title>
+    <link rel="stylesheet" href="styles/main.css" />
+    <link rel="stylesheet" href="styles/conversation.css" />
+    <link rel="stylesheet" href="styles/sidepanel.css" />
+    <link rel="stylesheet" href="styles/katex.min.css" />
+  </head>
+  <body>
+    <div id="header-container">
+      <!-- Connection status (shown when Ollama isn't reachable) -->
+      <div id="ollama-status-section">
+        <div id="ollama-status-message">Connecting to Ollama...</div>
+        <button id="ollama-retry-button">Retry</button>
+      </div>
+      <!-- Page context (shown when connected) -->
+      <div id="page-context" style="display: none">
+        <div id="page-icon-wrap">
+          <img
+            id="page-favicon"
+            src="icons/chrome.png"
+            width="18"
+            height="18"
+            alt=""
+          />
+        </div>
+        <div id="page-info">
+          <div id="page-title-text">Loading…</div>
+          <div id="page-url-text"></div>
+        </div>
+        <button id="settings-button" title="Settings">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div id="settings-view" style="display: none">
+      <div id="settings-header">
+        <span>Settings</span>
+        <button id="settings-close">
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M18 6L6 18M6 6l12 12"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">Ollama Host</div>
+        <div class="settings-api-row">
+          <input
+            type="text"
+            id="settings-host-input"
+            placeholder="http://localhost:11434"
+            autocomplete="off"
+          />
+          <button id="settings-host-save">Save</button>
+        </div>
+        <div class="settings-hint">
+          Requires Ollama running locally with
+          <code>OLLAMA_ORIGINS=chrome-extension://*</code>
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">Model</div>
+        <div class="settings-row">
+          <span>Model</span>
+          <span class="settings-hint">Used for chat &amp; page content</span>
+        </div>
+        <select id="model-select" class="settings-select"></select>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">Appearance</div>
+        <div class="settings-row">
+          <span>Theme</span>
+          <div class="theme-toggle">
+            <button class="theme-btn" data-theme="dark">Dark</button>
+            <button class="theme-btn" data-theme="light">Light</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="chat-container">
+      <div id="quick-actions">
+        <button class="quick-action-btn" data-prompt="Summarize this page">
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          Summarize this page
+        </button>
+        <button
+          class="quick-action-btn"
+          data-prompt="Suggest interesting questions I could ask about this page"
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          Suggest questions...
+        </button>
+      </div>
+    </div>
+
+    <div id="confirm-dialog" style="display: none">
+      <p>Clear conversation history?</p>
+      <div class="confirm-actions">
+        <button id="confirm-cancel">Cancel</button>
+        <button id="confirm-clear">Clear</button>
+      </div>
+    </div>
+
+    <div id="input-container">
+      <div class="input-wrapper">
+        <div id="ollama-missing">
+          Ollama isn't connected. Check Settings to configure the host.
+        </div>
+        <textarea
+          id="message-input"
+          rows="1"
+          placeholder="Ask anything"
+        ></textarea>
+        <div class="input-toolbar">
+          <div class="toolbar-left">
+            <button class="image-button">
+              <img src="icons/chrome.png" width="18" height="18" />
+            </button>
+            <button
+              id="clear-history-button"
+              title="Clear conversation history"
+              style="display: none"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M3 6h18"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+          <div class="toolbar-right">
+            <div id="model-badge">
+              <span id="current-model-display">Assistant</span>
+              <svg
+                width="11"
+                height="11"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M6 9l6 6 6-6"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </div>
+            <button class="send-button">
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M12 19V5"
+                  stroke="white"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M5 12l7-7 7 7"
+                  stroke="white"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>
