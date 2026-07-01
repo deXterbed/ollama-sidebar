@@ -121,12 +121,14 @@ Import npm packages normally in JS files. The esbuild bundler includes them auto
 
 ## 🚀 Releasing
 
-Releases are automated via GitHub Actions. Go to **Actions → Release → Run workflow**, pick `patch / minor / major`, and the workflow will:
+Releases are automated via GitHub Actions. Go to **Actions → Release → Run workflow**, choose a bump type, and the workflow handles the rest.
 
-1. Bump the version in `package.json` and `src/manifest.json`
-2. Commit, tag, and push
-3. Build and zip the extension
-4. Attach `ollama-sidebar-vX.Y.Z.zip` to a GitHub Release
+| Bump | Behavior |
+|---|---|
+| `patch / minor / major` | Bumps version in `package.json` + `src/manifest.json`, commits, tags, builds, and publishes a GitHub Release |
+| `none` | Skips the version bump — tags and releases the current version as-is |
+
+If the tag already exists on the remote, it is deleted and recreated (re-release in place).
 
 Download the zip from the [Releases](../../releases) page and upload it to the Chrome Web Store manually.
 
