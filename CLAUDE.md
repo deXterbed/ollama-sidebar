@@ -158,6 +158,12 @@ Releases are fully automated via `.github/workflows/release.yml`. Go to GitHub â
 - `src/styles/sidepanel.css` styles `message-content table { display: block; overflow-x: auto; }`. Table cells used `white-space: nowrap`, which causes inline code snippets to get truncated/clipped in the narrow side panel. Use `white-space: normal` + `word-wrap: break-word` for table `th`/`td` so code and text wrap properly.
 - The toolbar model dropdown (`#model-select-toolbar`) is a real `<select>` styled to look like a pill badge. To make it look clickable, it needs `background-color`, `border`, and a custom SVG arrow via `background-image`. The default browser `<select>` styling on a dark background makes the arrow invisible without a custom image.
 
+## Chrome Web Store Submission
+
+- **Reviewers flag unused permissions.** Before submitting, verify every permission declared in `manifest.json` is actually referenced in the code. We once shipped `"windows"` in `permissions` but never used `chrome.windows.*` anywhere â€” this would be rejected. Use `grep` to double-check: `grep -r "chrome\.windows" src/`.
+- **Remote code:** The extension does not use remote code (no `eval`, `new Function`, dynamic `<script>` tags, or external module loading). Select **No** on the Web Store form. `fetch()` calls are only to the user-configured local Ollama API and to URLs the user explicitly asks about via the built-in `web_fetch` tool.
+- **Host permission justification:** `<all_urls>` is needed because (1) the content script is injected into any page the user browses, and (2) the Ollama host URL is user-configurable and unknown at build time.
+
 ## Build Gotchas
 
 - `node_modules` may be missing in a fresh checkout. If `npm run build` fails with `Could not resolve "katex"`, run `npm install` first.

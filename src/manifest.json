@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Ollama Sidebar",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Chat with your local Ollama models from a browser sidepanel",
   "permissions": [
     "sidePanel",
@@ -9,8 +9,7 @@
     "activeTab",
     "tabs",
     "scripting",
-    "commands",
-    "windows"
+    "commands"
   ],
   "action": {
     "default_title": "Open Ollama Sidebar",
@@ -26,15 +25,9 @@
   },
   "content_scripts": [
     {
-      "matches": [
-        "<all_urls>"
-      ],
-      "js": [
-        "content.js"
-      ],
-      "css": [
-        "styles/icon.css"
-      ]
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["styles/icon.css"]
     }
   ],
   "commands": {
@@ -52,7 +45,5 @@
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
   },
-  "host_permissions": [
-    "<all_urls>"
-  ]
+  "host_permissions": ["<all_urls>"]
 }
