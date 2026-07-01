@@ -127,7 +127,9 @@ Import npm packages normally in JS files; esbuild bundles them automatically.
 
 ### Releasing
 
-Version lives in **two** files that must be kept in sync: `package.json` and `src/manifest.json`. Bump both, add a dated entry to `CHANGELOG.md` (newest at top), run `npm run build`, commit, then tag `vX.Y.Z`.
+Releases are fully automated via `.github/workflows/release.yml`. Go to GitHub → Actions → Release → Run workflow → pick `patch/minor/major`. The action bumps `package.json` and `src/manifest.json` in sync, commits, tags, builds, and attaches the zip to a GitHub Release automatically. No local steps needed.
+
+`scripts/zip.mjs` names the output file using the version from `package.json` (e.g. `ollama-sidebar-v0.1.0.zip`). Version lives in **two** files that must be kept in sync: `package.json` and `src/manifest.json` — the release action handles this automatically.
 
 ## Commands
 

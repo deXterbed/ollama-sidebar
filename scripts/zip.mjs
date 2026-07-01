@@ -1,11 +1,12 @@
 import { execSync } from "child_process";
-import { existsSync, rmSync } from "fs";
+import { existsSync, rmSync, readFileSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const root = resolve(__dirname, "..");
-const zipFile = resolve(root, "grok-everywhere.zip");
+const { name, version } = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8"));
+const zipFile = resolve(root, `${name}-v${version}.zip`);
 
 // Ensure a fresh build first
 console.log("Building extension...");
@@ -19,15 +20,13 @@ if (existsSync(zipFile)) {
 // Create zip from dist/ contents
 console.log("Creating zip package...");
 try {
-  // Use PowerShell on Windows for reliable zip creation
   execSync(
     `powershell -Command "Compress-Archive -Path '${resolve(root, "dist", "*")}' -DestinationPath '${zipFile}' -Force"`,
     { stdio: "inherit", cwd: root }
   );
 } catch {
-  // Fallback: try zip command (Git Bash / WSL)
   try {
-    execSync(`cd dist && zip -r ../grok-everywhere.zip . -x "*.DS_Store"`, {
+    execSync(`cd dist && zip -r "../${name}-v${version}.zip" . -x "*.DS_Store"`, {
       stdio: "inherit",
       cwd: root,
     });

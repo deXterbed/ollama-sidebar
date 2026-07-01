@@ -119,6 +119,17 @@ For models that don't support tool calling, URLs are detected eagerly via regex 
 
 Import npm packages normally in JS files. The esbuild bundler includes them automatically.
 
+## 🚀 Releasing
+
+Releases are automated via GitHub Actions. Go to **Actions → Release → Run workflow**, pick `patch / minor / major`, and the workflow will:
+
+1. Bump the version in `package.json` and `src/manifest.json`
+2. Commit, tag, and push
+3. Build and zip the extension
+4. Attach `ollama-sidebar-vX.Y.Z.zip` to a GitHub Release
+
+Download the zip from the [Releases](../../releases) page and upload it to the Chrome Web Store manually.
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
