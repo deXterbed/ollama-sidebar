@@ -50,7 +50,7 @@ jobs:
           git tag "v${{ steps.version.outputs.version }}"
           git push && git push --tags
 
-      - run: npm ci
+      - run: npm install
       - run: npm run zip
 
       - name: Create GitHub release
