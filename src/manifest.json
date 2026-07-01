@@ -1,6 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Ollama Sidebar",
+  "version": "0.1.0",
   "description": "Chat with your local Ollama models from a browser sidepanel",
   "permissions": [
     "sidePanel",
