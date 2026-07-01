@@ -1,0 +1,43 @@
+Chrome Web Store — Permission Justifications
+Ollama Sidebar v0.2.0
+
+Privacy policy URL: https://github.com/deXterbed/ollama-sidebar/blob/main/PRIVACY-POLICY.md
+
+Data collected:
+- Personal communications (chat messages stored locally per tab)
+- Website content (active page text extracted only when user explicitly enables "page content" mode or presses the keyboard shortcut)
+
+───────────────────────────────────────────────
+Single purpose description
+───────────────────────────────────────────────
+Chat with a local Ollama AI instance from a Chrome sidepanel, with an optional mode that includes the active web page’s text content as context for the conversation.
+Chat with a local Ollama AI instance from a Chrome sidepanel, with an optional mode that includes the active web page’s text content as context for the conversation.
+
+───────────────────────────────────────────────
+Permission justifications
+───────────────────────────────────────────────
+
+sidePanel
+The extension’s entire UI is a sidepanel. chrome.sidePanel.setOptions() and open() are used to enable and show the panel only on the tab where the user clicked the extension icon (per-tab behavior, not global).
+
+storage
+Stores per-tab conversation history (conversationHistory_${tabId}) so chats survive tab switches, plus the user’s selected model and Ollama host URL in chrome.storage.local.
+
+activeTab
+Used to read the active tab’s page title, URL, and favicon for display in the sidepanel header, and to extract the page’s text content when the user enables “page context” mode or presses the keyboard shortcut.
+
+tabs
+Required to clean up stored conversation history when a tab is closed (chrome.tabs.onRemoved), to query the active/current tab for content extraction, and to target the correct tab when injecting the content script programmatically.
+
+scripting
+Used to programmatically inject content.js into the active tab via chrome.scripting.executeScript() when the user first installs the extension or navigates to a new page, ensuring the content-extraction listener is available immediately.
+
+host_permissions (<all_urls>)
+Two reasons: (1) the content script must be injected into any web page so the user can extract text content from any site; (2) the Ollama host URL is user-configurable (default http://localhost:11434) and the extension cannot know the origin in advance, so it needs permission to fetch the user’s chosen host.
+
+───────────────────────────────────────────────
+Remote code
+───────────────────────────────────────────────
+No, I am not using remote code.
+
+The extension does not load or execute remote JavaScript or Wasm. The fetch calls are only to the user-configured local Ollama API (data responses) and to URLs the user explicitly asks about via the built-in web_fetch tool (HTML parsed with DOMParser into text). There is no eval, new Function, dynamic <script> injection, or external module loading. All JS is bundled locally by esbuild.
