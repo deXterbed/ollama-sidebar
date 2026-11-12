@@ -4,6 +4,19 @@ import katex from "katex";
 export function parseMarkdown(text) {
   if (!text) return "";
 
+  // Pull fenced blocks and inline code out of the way before math extraction:
+  // a "$x$" inside code is code, not LaTeX, and used to render as KaTeX
+  // inside the <code>/<pre> element. Restored right after math extraction,
+  // before HTML escaping, so the rest of the pipeline sees the raw code.
+  const codeSegments = [];
+  // The last alternative is a fence that has no closing ``` yet (normal while
+  // a reply is still streaming); it runs to the end of the text so its math
+  // isn't extracted either.
+  text = text.replace(/```[\s\S]*?```|```[\s\S]*$|`[^`\n]*`/g, (match) => {
+    codeSegments.push(match);
+    return `%%CODESEG_${codeSegments.length - 1}%%`;
+  });
+
   // Extract math blocks before HTML escaping so LaTeX isn't mangled
   const displayMathBlocks = [];
   const inlineMathBlocks = [];
@@ -11,10 +24,22 @@ export function parseMarkdown(text) {
     displayMathBlocks.push(math.trim());
     return `%%DISPLAYMATH_${displayMathBlocks.length - 1}%%`;
   });
-  text = text.replace(/\$(.+?)\$/g, (match, math) => {
-    inlineMathBlocks.push(math);
-    return `%%INLINEMATH_${inlineMathBlocks.length - 1}%%`;
-  });
+  // Inline math: delimiters must hug the content, and the match can't cross
+  // another "$" or a line break, and a closing "$" followed by a digit means
+  // currency ("$5–$10", "between $5 and $10") — not math. The old naive
+  // /\$(.+?)\$/ made "$5–$10" math out of "5–", corrupting the answer and
+  // making KaTeX log "Unrecognized Unicode character" for the en dash.
+  text = text.replace(
+    /\$(?!\s)([^$\n]+?)(?<!\s)\$(?!\d)/g,
+    (match, math) => {
+      inlineMathBlocks.push(math);
+      return `%%INLINEMATH_${inlineMathBlocks.length - 1}%%`;
+    },
+  );
+  text = text.replace(
+    /%%CODESEG_(\d+)%%/g,
+    (match, index) => codeSegments[parseInt(index)] ?? match,
+  );
 
   // Escape HTML first to prevent XSS
   let html = text
@@ -30,6 +55,17 @@ export function parseMarkdown(text) {
   let codeBlockLanguage = "";
   let inTable = false;
   let tableRows = [];
+
+  function flushCodeBlock() {
+    const codeContent = codeBlockContent.join("\n");
+    const languageClass = codeBlockLanguage
+      ? ` class="language-${codeBlockLanguage}"`
+      : "";
+    processedLines.push(`<pre><code${languageClass}>${codeContent}</code></pre>`);
+    inCodeBlock = false;
+    codeBlockContent = [];
+    codeBlockLanguage = "";
+  }
 
   function flushTable() {
     if (!tableRows.length) return;
@@ -60,16 +96,7 @@ export function parseMarkdown(text) {
         codeBlockLanguage = line.trim().substring(3).trim();
         codeBlockContent = [];
       } else {
-        inCodeBlock = false;
-        const codeContent = codeBlockContent.join("\n");
-        const languageClass = codeBlockLanguage
-          ? ` class="language-${codeBlockLanguage}"`
-          : "";
-        processedLines.push(
-          `<pre><code${languageClass}>${codeContent}</code></pre>`,
-        );
-        codeBlockContent = [];
-        codeBlockLanguage = "";
+        flushCodeBlock();
       }
       continue;
     }
@@ -125,6 +152,11 @@ export function parseMarkdown(text) {
     processedLines.push(processedLine);
   }
 
+  // A fence still open at the end (normal mid-stream) must still render,
+  // otherwise everything after the opening ``` disappears from the reply
+  // until the closing fence arrives.
+  if (inCodeBlock) flushCodeBlock();
+
   // Flush any trailing table
   flushTable();
 
@@ -179,6 +211,9 @@ export function parseMarkdown(text) {
       return katex.renderToString(math, {
         displayMode: true,
         throwOnError: false,
+        // Answers come from a model, not an authored paper — unknown Unicode
+        // inside math (e.g. "–") is common and only produces console noise.
+        strict: false,
       });
     } catch {
       return `<div class="math-error">${math}</div>`;
@@ -191,6 +226,7 @@ export function parseMarkdown(text) {
       return katex.renderToString(math, {
         displayMode: false,
         throwOnError: false,
+        strict: false,
       });
     } catch {
       return `<span class="math-error">${math}</span>`;
