@@ -1,3 +1,9 @@
+// Page extracts feed the prompt directly, so this budget trades context size for
+// completeness. ~4 chars per token puts 24000 chars at roughly 6k tokens: fine
+// for cloud models, over a default 4096-token local context. Raise
+// OLLAMA_CONTEXT_LENGTH if local answers start failing with context errors.
+const MAX_PAGE_CHARS = 24000;
+
 // Function to extract relevant webpage content
 function extractPageContent() {
   try {
@@ -59,7 +65,7 @@ function extractPageContent() {
       .trim();
 
     // Limit content length to avoid token limits
-    const maxLength = 8000; // Conservative limit
+    const maxLength = MAX_PAGE_CHARS;
     if (content.length > maxLength) {
       content = content.substring(0, maxLength) + "...";
     }

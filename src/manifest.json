@@ -9,7 +9,8 @@
     "activeTab",
     "tabs",
     "scripting",
-    "commands"
+    "commands",
+    "declarativeNetRequestWithHostAccess"
   ],
   "action": {
     "default_title": "Open Ollama Sidebar",

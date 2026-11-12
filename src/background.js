@@ -1,3 +1,38 @@
+// Ollama's CORS middleware rejects requests whose Origin isn't allowlisted (403),
+// and the browser always stamps our own fetches with chrome-extension://<id>.
+// Dropping the header for requests we initiate lets Ollama's check pass without
+// the user setting OLLAMA_ORIGINS. The rule must be dynamic because a static
+// rules.json can't reference the runtime extension ID. Dynamic rules survive
+// browser restarts and extension updates; the guard keeps each worker start from
+// rewriting them.
+const ORIGIN_RULE_ID = 1;
+
+async function ensureOriginRule() {
+  const rules = await chrome.declarativeNetRequest.getDynamicRules();
+  if (rules.some((rule) => rule.id === ORIGIN_RULE_ID)) return;
+
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    addRules: [
+      {
+        id: ORIGIN_RULE_ID,
+        priority: 1,
+        action: {
+          type: "modifyHeaders",
+          requestHeaders: [{ header: "Origin", operation: "remove" }],
+        },
+        condition: {
+          initiatorDomains: [chrome.runtime.id],
+          resourceTypes: ["xmlhttprequest"],
+        },
+      },
+    ],
+  });
+}
+
+ensureOriginRule().catch((error) =>
+  console.error("Error installing Origin header rule:", error)
+);
+
 // Handle tab removal to clean up chat history
 chrome.tabs.onRemoved.addListener(async (tabId, removeInfo) => {
   try {

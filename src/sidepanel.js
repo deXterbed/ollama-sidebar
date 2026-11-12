@@ -9,7 +9,6 @@ import { createStorage } from "./modules/storage.js";
 import {
   fetchStreamingReply,
   fetchModels,
-  fetchToolCalls,
 } from "./modules/api.js";
 import {
   showLoading,
@@ -510,7 +509,8 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
       hideLoading();
       hideTypingIndicator(getModelLabel());
-      throw error;
+      console.error("Send failed:", error);
+      addMessage(`⚠ ${error.message || "Request failed."}`, false);
     }
   }
 
@@ -656,6 +656,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  // Cap tool-call rounds per message so a model that keeps asking for more
+  // pages can't loop forever.
+  const MAX_TOOL_ROUNDS = 4;
+
   async function sendMessage(message, content) {
     const model = selectedModel;
 
@@ -679,100 +683,152 @@ document.addEventListener("DOMContentLoaded", async () => {
       cleanupOldConversations();
     }
 
+    let streamingMessageId = null;
+
     try {
       // Create a placeholder message for the streaming response
-      const streamingMessageId = Date.now().toString();
+      streamingMessageId = Date.now().toString();
       const streamingMessageElement = addStreamingMessage(streamingMessageId);
 
       let messages = null;
+      let transcript = "";
+      let toolRounds = 0;
 
-      // Step 1: Check if model wants to call tools (non-streaming)
-      try {
-        const toolResult = await fetchToolCalls({
-          message,
-          content,
+      // Models without tool support can't fetch linked pages themselves, so pull
+      // URLs mentioned in the message into the prompt up front.
+      const urls = extractUrls(message);
+      if (urls.length > 0) {
+        const [tab] = await chrome.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
+        const currentTabUrl = tab?.url || "";
+        const externalUrls = urls.filter((u) => u !== currentTabUrl);
+        if (externalUrls.length > 0) {
+          showContextLoading(
+            `Fetching ${externalUrls.length} linked page(s)...`,
+          );
+          const results = await Promise.allSettled(
+            externalUrls.map((u) => fetchUrlContent(u)),
+          );
+          for (const result of results) {
+            if (result.status === "fulfilled" && result.value.content) {
+              content = content
+                ? content +
+                  `\n\n--- Content from ${result.value.url} ---\n\n${result.value.content}`
+                : `--- Content from ${result.value.url} ---\n\n${result.value.content}`;
+            } else if (result.status === "rejected") {
+              console.error("Failed to fetch URL:", result.reason);
+            }
+          }
+          hideContextLoading();
+        }
+      }
+
+      // Each round is a separate generation, so join their text rather than
+      // gluing the last words of one round to the first of the next.
+      const compose = (text) =>
+        transcript && text ? `${transcript}\n\n${text}` : transcript + text;
+
+      // Stream the answer, running web_fetch calls as the model emits them. The
+      // model decides when it has enough pages, so a review needing several
+      // files doesn't stop after the first one.
+      const streamRound = (msgs, roundTools) =>
+        fetchStreamingReply({
+          streamingMessageId,
           model,
           ollamaHost,
+          onStream: (id, partial) =>
+            updateStreamingContent(id, compose(partial)),
+          messages: msgs,
+          message,
+          content,
           conversationHistory,
-          tools: [WEB_FETCH_TOOL],
+          tools: roundTools,
         });
 
-        if (toolResult) {
-          // Execute tool calls
-          messages = toolResult.messages;
-          messages.push(toolResult.assistantMessage);
-
-          for (const toolCall of toolResult.toolCalls) {
-            if (toolCall.function?.name === "web_fetch") {
-              let args = toolCall.function.arguments;
-              if (typeof args === "string") {
-                try {
-                  args = JSON.parse(args);
-                } catch {
-                  args = {};
-                }
-              }
-              showContextLoading(`Fetching ${args.url}...`);
-              const result = await fetchUrlContent(args.url || "");
-              hideContextLoading();
-              messages.push({
-                role: "tool",
-                content:
-                  result.content ||
-                  `Error: ${result.error || "Failed to fetch page"}`,
-                name: toolCall.function.name,
-              });
-            }
-          }
-        }
+      let result;
+      try {
+        result = await streamRound(null, [WEB_FETCH_TOOL]);
       } catch (toolError) {
-        // Tool calling not supported by model or failed — fall back to normal streaming
-        console.warn("Tool call failed, falling back:", toolError);
+        // Some models or proxies reject the tools field outright
+        console.warn("Request with tools failed, retrying without:", toolError);
+        result = await streamRound(null, []);
       }
+      transcript = compose(result.content);
 
-      // Fallback: if model didn't use tools, eagerly fetch URLs ourselves
-      if (!messages) {
-        const urls = extractUrls(message);
-        if (urls.length > 0) {
-          const [tab] = await chrome.tabs.query({
-            active: true,
-            currentWindow: true,
-          });
-          const currentTabUrl = tab?.url || "";
-          const externalUrls = urls.filter((u) => u !== currentTabUrl);
-          if (externalUrls.length > 0) {
-            showContextLoading(
-              `Fetching ${externalUrls.length} linked page(s)...`,
-            );
-            const results = await Promise.allSettled(
-              externalUrls.map((u) => fetchUrlContent(u)),
-            );
-            for (const result of results) {
-              if (result.status === "fulfilled" && result.value.content) {
-                content = content
-                  ? content +
-                    `\n\n--- Content from ${result.value.url} ---\n\n${result.value.content}`
-                  : `--- Content from ${result.value.url} ---\n\n${result.value.content}`;
-              } else if (result.status === "rejected") {
-                console.error("Failed to fetch URL:", result.reason);
-              }
+      while (result.toolCalls.length > 0 && toolRounds < MAX_TOOL_ROUNDS) {
+        toolRounds++;
+
+        messages = result.messages;
+        messages.push({
+          role: "assistant",
+          content: result.content,
+          tool_calls: result.toolCalls,
+        });
+
+        for (const toolCall of result.toolCalls) {
+          if (toolCall.function?.name !== "web_fetch") continue;
+
+          let args = toolCall.function.arguments;
+          if (typeof args === "string") {
+            try {
+              args = JSON.parse(args);
+            } catch {
+              args = {};
             }
-            hideContextLoading();
           }
+
+          showContextLoading(`Fetching ${args.url}...`);
+          const fetched = await fetchUrlContent(args.url || "");
+          hideContextLoading();
+
+          // Ollama reads tool_name on tool results; a bare "name" is ignored
+          messages.push({
+            role: "tool",
+            content:
+              fetched.content ||
+              `Error: ${fetched.error || "Failed to fetch page"}`,
+            tool_name: toolCall.function.name,
+            ...(toolCall.id ? { tool_call_id: toolCall.id } : {}),
+          });
         }
+
+        result = await streamRound(messages, [WEB_FETCH_TOOL]);
+        transcript = compose(result.content);
       }
 
-      // Step 2: Stream the final response (with tool results if any)
-      const reply = await fetchStreamingReply({
-        streamingMessageId,
-        model,
-        ollamaHost,
-        onStream: updateStreamingContent,
-        messages,
-        message,
-        content,
-        conversationHistory,
-      });
+      // Cap reached with the model still asking for pages: force an answer
+      if (result.toolCalls.length > 0) {
+        messages = result.messages;
+        messages.push({
+          role: "user",
+          content:
+            "You've reached the page-fetch limit. Answer now using the information you already have.",
+        });
+        result = await streamRound(messages, []);
+        transcript = compose(result.content);
+      }
+
+      const reply = transcript;
+
+      // A completed stream with no text means the model produced nothing usable;
+      // report what came back so the cause is visible.
+      if (!reply.trim()) {
+        const details = [
+          result.doneReason && `done_reason "${result.doneReason}"`,
+          result.toolCalls.length > 0 && "model still asked for a tool call",
+          toolRounds >= MAX_TOOL_ROUNDS && "hit the tool round cap",
+          result.thinkingChars > 0 &&
+            `thinking only (${result.thinkingChars} chars)`,
+        ].filter(Boolean);
+
+        throw new Error(
+          `Ollama returned an empty response${
+            details.length ? ` (${details.join(", ")})` : ""
+          }.`,
+        );
+      }
 
       // Hide typing indicator
       hideTypingIndicator(getModelLabel());
@@ -799,6 +855,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     } catch (error) {
       // Hide typing indicator on error
       hideTypingIndicator(getModelLabel());
+
+      // Drop the placeholder unless the stream already produced text
+      const wrapper = document.getElementById(
+        `streaming-${streamingMessageId}`,
+      );
+      const text = wrapper?.querySelector(".message-content span")?.textContent;
+      if (wrapper && !text?.trim()) wrapper.remove();
+
       throw error;
     }
   }

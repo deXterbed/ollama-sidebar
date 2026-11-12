@@ -34,16 +34,34 @@ async function ollamaFetch(ollamaHost, path, options) {
   return response;
 }
 
+// The page extract is context, not the scope of the answer. Without this,
+// models treat it as a closed corpus and reply "the page doesn't say" instead
+// of answering, which reads as the extension failed to read the tab.
+const CONTENT_RULE =
+  "The webpage content is context, not a limit on what you may answer. If it does not fully answer the question, answer from your own knowledge; never reply that the page doesn't say or doesn't mention something, and never substitute that statement for an answer.";
+
 function buildMessages({ message, content, conversationHistory }) {
+  const today = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+
   const messages = [
     {
       role: "system",
       content:
-        "You are a helpful AI assistant running locally via Ollama. You may be provided with webpage content from the user's current tab or from linked pages in their message. Use this context to answer questions. If you don't have content for a specific page, say so clearly. You can also use the `web_fetch` tool to fetch additional pages if needed.",
+        `You are a helpful AI assistant running locally via Ollama. Today's date is ${today}. ` +
+        "You will be provided with content from the user's current tab and from linked pages mentioned in their message; treat it as the primary source for the answer. " +
+        `${CONTENT_RULE} ` +
+        "You also have a web_fetch tool that reads the live content of any webpage. Call it when the message mentions a URL whose content you were not already given, then answer; never claim you cannot access the internet.",
     },
   ];
 
-  conversationHistory.forEach((msg) => {
+  // The current turn was already pushed to conversationHistory by sendMessage,
+  // so iterate only earlier turns or the message is sent twice.
+  conversationHistory.slice(0, -1).forEach((msg) => {
     messages.push({
       role: msg.isUser ? "user" : "assistant",
       content: msg.content,
@@ -53,7 +71,7 @@ function buildMessages({ message, content, conversationHistory }) {
   if (content) {
     messages.push({
       role: "user",
-      content: `Here is the content from my current webpage:\n\n${content}\n\nPlease use this context to help answer my question.`,
+      content: `Here is the content from my current webpage:\n\n${content}\n\nPlease use this context to help answer my question. This extract is truncated, so if it does not answer my question, do not assume the answer isn't on the page.`,
     });
   }
 
@@ -74,6 +92,7 @@ async function readStream(response, streamingMessageId, onStream) {
   const decoder = new TextDecoder();
   let fullContent = "";
   let buffer = "";
+  const meta = { doneReason: "", thinkingChars: 0, toolCalls: [] };
 
   try {
     while (true) {
@@ -84,15 +103,28 @@ async function readStream(response, streamingMessageId, onStream) {
       buffer = lines.pop() || "";
       for (const line of lines) {
         if (!line.trim()) continue;
+        let parsed;
         try {
-          const parsed = JSON.parse(line);
-          const piece = parsed.message?.content;
-          if (piece) {
-            fullContent += piece;
-            onStream(streamingMessageId, fullContent);
-          }
+          parsed = JSON.parse(line);
         } catch {
-          // ignore partial JSON chunks
+          continue; // ignore partial JSON chunks
+        }
+        // Ollama reports generation failures in-band on a 200 response, so a
+        // dropped error object would look like an empty reply.
+        if (parsed.error) {
+          throw new Error(parsed.error);
+        }
+        if (parsed.done) meta.doneReason = parsed.done_reason || "";
+        if (parsed.message?.tool_calls?.length) {
+          meta.toolCalls.push(...parsed.message.tool_calls);
+        }
+        if (parsed.message?.thinking) {
+          meta.thinkingChars += parsed.message.thinking.length;
+        }
+        const piece = parsed.message?.content;
+        if (piece) {
+          fullContent += piece;
+          onStream(streamingMessageId, fullContent);
         }
       }
     }
@@ -100,34 +132,7 @@ async function readStream(response, streamingMessageId, onStream) {
     reader.releaseLock();
   }
 
-  return fullContent;
-}
-
-export async function fetchToolCalls({
-  message,
-  content,
-  model,
-  ollamaHost,
-  conversationHistory,
-  tools,
-}) {
-  const messages = buildMessages({ message, content, conversationHistory });
-
-  const response = await ollamaFetch(ollamaHost, "/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages, stream: false, tools }),
-  });
-
-  const data = await response.json();
-  if (data.message?.tool_calls?.length > 0) {
-    return {
-      toolCalls: data.message.tool_calls,
-      assistantMessage: data.message,
-      messages,
-    };
-  }
-  return null;
+  return { content: fullContent, ...meta };
 }
 
 export async function fetchStreamingReply({
@@ -139,6 +144,7 @@ export async function fetchStreamingReply({
   message,
   content,
   conversationHistory,
+  tools,
 }) {
   const finalMessages =
     messages || buildMessages({ message, content, conversationHistory });
@@ -146,8 +152,14 @@ export async function fetchStreamingReply({
   const response = await ollamaFetch(ollamaHost, "/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model, messages: finalMessages, stream: true }),
+    body: JSON.stringify({
+      model,
+      messages: finalMessages,
+      stream: true,
+      tools,
+    }),
   });
 
-  return readStream(response, streamingMessageId, onStream);
+  const result = await readStream(response, streamingMessageId, onStream);
+  return { ...result, messages: finalMessages };
 }

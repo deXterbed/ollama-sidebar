@@ -1,3 +1,7 @@
+// Per-URL budget for the web_fetch path. Several URLs can be fetched in one
+// turn, so this stays below MAX_PAGE_CHARS in content.js.
+const MAX_FETCHED_CHARS = 12000;
+
 export async function extractPageContent() {
   try {
     const response = await Promise.race([
@@ -160,7 +164,7 @@ export async function fetchUrlContent(url) {
       .replace(/\n\s*\n/g, "\n")
       .trim();
 
-    const maxLength = 6000;
+    const maxLength = MAX_FETCHED_CHARS;
     if (content.length > maxLength) {
       content = content.substring(0, maxLength) + "...";
     }
