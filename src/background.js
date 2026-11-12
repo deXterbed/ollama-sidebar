@@ -1,5 +1,5 @@
-// Ollama's CORS middleware rejects requests whose Origin isn't allowlisted (403),
-// and the browser always stamps our own fetches with chrome-extension://<id>.
+// Ollama rejects requests whose Origin isn't allowlisted (403), and the browser
+// always stamps our own fetches with chrome-extension://<id>.
 // Dropping the header for requests we initiate lets Ollama's check pass without
 // the user setting OLLAMA_ORIGINS. The rule must be dynamic because a static
 // rules.json can't reference the runtime extension ID. Dynamic rules survive
@@ -96,6 +96,29 @@ chrome.commands.onCommand.addListener(async (command) => {
 
 // Handle messages from content script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "webSearch") {
+    // Ollama's hosted web search API. The key is passed per-request from the
+    // sidepanel, which owns settings, so this worker stays stateless.
+    fetch("https://ollama.com/api/web_search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${request.apiKey}`,
+      },
+      body: JSON.stringify({
+        query: request.query,
+        max_results: Math.min(Number(request.maxResults) || 5, 10),
+      }),
+    })
+      .then(async (r) => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const data = await r.json();
+        sendResponse({ results: data.results || [] });
+      })
+      .catch((err) => sendResponse({ error: err.message }));
+    return true;
+  }
+
   if (request.action === "extractContent") {
     // Forward the content extraction request to the active tab
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {

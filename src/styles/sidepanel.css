@@ -228,6 +228,11 @@ html {
     width: 100%;
 }
 
+/* User messages keep their line breaks */
+.message-wrapper.user .message-content {
+    white-space: pre-wrap;
+}
+
 .message-wrapper.user .avatar {
     display: none;
 }
@@ -372,6 +377,17 @@ html {
 
 #message-input::placeholder {
     color: var(--text-secondary);
+}
+
+/* Native autosize (Chrome 123+): the browser sizes the textarea from its
+   content, so autoResizeTextarea() must not run — its per-keystroke
+   height/scrollHeight writes forced synchronous layouts. */
+@supports (field-sizing: content) {
+    #message-input {
+        height: auto;
+        overflow-y: auto;
+        field-sizing: content;
+    }
 }
 
 .input-toolbar {
@@ -614,8 +630,8 @@ html {
     display: flex;
     align-items: center;
     min-height: 50px;
-    height: 50px;
-    padding: 0 8px;
+    height: auto;
+    padding: 4px 8px;
 }
 
 /* Ollama connection status section */
@@ -954,8 +970,7 @@ html {
     padding: 6px 10px;
     text-align: left;
     white-space: normal;
-    word-wrap: break-word;
-    overflow-wrap: break-word;
+    overflow-wrap: anywhere;
 }
 
 .message-content th {
@@ -1081,7 +1096,8 @@ html {
     color: var(--text-secondary);
 }
 
-#settings-host-save {
+#settings-host-save,
+#settings-ollama-save {
     padding: 8px 14px;
     background-color: var(--accent-dim);
     border: 1px solid var(--accent-border);
@@ -1094,11 +1110,13 @@ html {
     transition: background-color 150ms ease;
 }
 
-#settings-host-save:hover {
+#settings-host-save:hover,
+#settings-ollama-save:hover {
     background-color: rgba(124, 106, 247, 0.2);
 }
 
-#settings-host-save.saved {
+#settings-host-save.saved,
+#settings-ollama-save.saved {
     color: #4caf7d;
     background-color: rgba(76, 175, 125, 0.1);
     border-color: rgba(76, 175, 125, 0.3);
@@ -1116,6 +1134,13 @@ html {
 
 .settings-hint a:hover {
     text-decoration: underline;
+}
+
+#settings-web-search-toggle {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
 }
 
 .settings-row {

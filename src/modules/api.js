@@ -16,7 +16,7 @@ async function ollamaFetch(ollamaHost, path, options) {
   }
   if (response.status === 403) {
     throw new Error(
-      `Ollama rejected the request (403 Forbidden). This usually means its origin allowlist doesn't include this extension. Set the OLLAMA_ORIGINS environment variable to "chrome-extension://*" and restart Ollama.`,
+      `Ollama rejected the request (403 Forbidden). This usually means its origin allowlist doesn't include this extension. Reload the extension so its Origin-stripping rule is installed, or set OLLAMA_ORIGINS to "chrome-extension://*" and restart Ollama.`,
     );
   }
   if (!response.ok) {
@@ -37,10 +37,13 @@ async function ollamaFetch(ollamaHost, path, options) {
 // The page extract is context, not the scope of the answer. Without this,
 // models treat it as a closed corpus and reply "the page doesn't say" instead
 // of answering, which reads as the extension failed to read the tab.
-const CONTENT_RULE =
-  "The webpage content is context, not a limit on what you may answer. If it does not fully answer the question, answer from your own knowledge; never reply that the page doesn't say or doesn't mention something, and never substitute that statement for an answer.";
+function contentRule(searchOn) {
+  return searchOn
+    ? "The webpage content is context, not a limit on what you may answer. If it does not fully answer the user's question, you MUST call web_search and answer from the results, citing the source URLs — never reply that the page/blog doesn't say or doesn't mention it, and never substitute that statement for an answer. Only after actually searching may you say something isn't available. Use web_search for recent events and current facts too."
+    : "The webpage content is context, not a limit on what you may answer. If it does not fully answer the user's question, answer from your own knowledge — never reply that the page/blog doesn't say or doesn't mention it, and never substitute that statement for an answer.";
+}
 
-function buildMessages({ message, content, conversationHistory }) {
+function buildMessages({ message, content, conversationHistory, searchOn }) {
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     year: "numeric",
@@ -52,10 +55,10 @@ function buildMessages({ message, content, conversationHistory }) {
     {
       role: "system",
       content:
-        `You are a helpful AI assistant running locally via Ollama. Today's date is ${today}. ` +
-        "You will be provided with content from the user's current tab and from linked pages mentioned in their message; treat it as the primary source for the answer. " +
-        `${CONTENT_RULE} ` +
-        "You also have a web_fetch tool that reads the live content of any webpage. Call it when the message mentions a URL whose content you were not already given, then answer; never claim you cannot access the internet.",
+        `You are a helpful AI assistant running locally via Ollama. Today's date is ${today}. You will be provided context from the user's current webpage to help answer their questions more effectively. Focus on the main content, articles, text, and meaningful information from the webpage. ${contentRule(searchOn)} You have a web_fetch tool that reads the live content of any webpage — you are not limited to prior knowledge or a training cutoff for this. Whenever the user's message contains or references a specific URL, always call web_fetch to read it before answering; never claim you can't browse or access the internet.` +
+        (searchOn
+          ? " You also have a web_search tool that queries the live web, and you can chain it with web_fetch (e.g., search, then read a result link)."
+          : ""),
     },
   ];
 
@@ -71,12 +74,30 @@ function buildMessages({ message, content, conversationHistory }) {
   if (content) {
     messages.push({
       role: "user",
-      content: `Here is the content from my current webpage:\n\n${content}\n\nPlease use this context to help answer my question. This extract is truncated, so if it does not answer my question, do not assume the answer isn't on the page.`,
+      content: `Here is the content from my current webpage:\n\n${content}\n\nPlease use this context to help answer my question. If I ask for a summary, summarize the main content from this webpage. This extract is truncated, so if it does not answer my question, do not assume the answer isn't on the page. ${searchOn ? "Call web_search and answer from the results instead of telling me the page doesn't cover it." : "Answer from your own knowledge instead of telling me the page doesn't cover it."}`,
     });
   }
 
   messages.push({ role: "user", content: message });
   return messages;
+}
+
+// Ollama's hosted web search returns long snippets, and tool output competes
+// with the reply for the model's context, so cap both per result and overall.
+const MAX_SNIPPET_CHARS = 1000;
+const MAX_RESULTS_CHARS = 8000;
+
+export function formatSearchResults(results) {
+  if (!Array.isArray(results) || results.length === 0) {
+    return "No results found.";
+  }
+  const formatted = results
+    .map(
+      (r, i) =>
+        `${i + 1}. ${r.title || "Untitled"} — ${r.url}\n${(r.content || "").slice(0, MAX_SNIPPET_CHARS)}`,
+    )
+    .join("\n\n");
+  return formatted.slice(0, MAX_RESULTS_CHARS);
 }
 
 export async function fetchModels(ollamaHost) {
@@ -145,9 +166,11 @@ export async function fetchStreamingReply({
   content,
   conversationHistory,
   tools,
+  searchOn,
 }) {
   const finalMessages =
-    messages || buildMessages({ message, content, conversationHistory });
+    messages ||
+    buildMessages({ message, content, conversationHistory, searchOn });
 
   const response = await ollamaFetch(ollamaHost, "/api/chat", {
     method: "POST",

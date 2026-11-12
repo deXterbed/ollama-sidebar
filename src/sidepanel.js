@@ -9,6 +9,7 @@ import { createStorage } from "./modules/storage.js";
 import {
   fetchStreamingReply,
   fetchModels,
+  formatSearchResults,
 } from "./modules/api.js";
 import {
   showLoading,
@@ -41,6 +42,26 @@ const WEB_FETCH_TOOL = {
   },
 };
 
+const WEB_SEARCH_TOOL = {
+  type: "function",
+  function: {
+    name: "web_search",
+    description:
+      "Search the web for current information. Use this for recent events, current facts, anything you are unsure about, and especially when the provided webpage content does not answer the user's question.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "The search query string" },
+        max_results: {
+          type: "number",
+          description: "Maximum results to return (default 5, max 10)",
+        },
+      },
+      required: ["query"],
+    },
+  },
+};
+
 document.addEventListener("DOMContentLoaded", async () => {
   const messageInput = document.getElementById("message-input");
   const chatContainer = document.getElementById("chat-container");
@@ -50,6 +71,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   const clearHistoryButton = document.getElementById("clear-history-button");
   const quickActionsEl = document.getElementById("quick-actions");
   let ollamaHost = DEFAULT_OLLAMA_HOST;
+  let ollamaApiKey = null;
+  let webSearchEnabled = false;
   let ollamaConnected = false;
   let currentContent = null;
   let contextMode = "content"; // 'none', 'content'
@@ -111,7 +134,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   // Auto-resize textarea to match content, like standard chat UIs
+  // Chrome 123+ can size the textarea from its content via CSS (field-sizing),
+  // and the per-keystroke height writes below would fight it and force layout.
+  const hasFieldSizing = CSS.supports("field-sizing: content");
+
   function autoResizeTextarea() {
+    if (hasFieldSizing) return;
     messageInput.style.height = "0";
     const scrollH = messageInput.scrollHeight;
     const newHeight = Math.min(scrollH, 160);
@@ -241,11 +269,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     "theme",
     "ollamaHost",
     "selectedModel",
+    "ollamaApiKey",
+    "webSearchEnabled",
   ]);
   const savedTheme = result.theme || "dark";
   document.documentElement.dataset.theme = savedTheme;
   if (result.ollamaHost) ollamaHost = result.ollamaHost;
   if (result.selectedModel) selectedModel = result.selectedModel;
+  ollamaApiKey = result.ollamaApiKey || null;
+  webSearchEnabled = Boolean(result.webSearchEnabled);
 
   document
     .getElementById("ollama-retry-button")
@@ -547,11 +579,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   const settingsView = document.getElementById("settings-view");
   const settingsHostInput = document.getElementById("settings-host-input");
   const settingsHostSave = document.getElementById("settings-host-save");
+  const settingsOllamaInput = document.getElementById("settings-ollama-input");
+  const settingsOllamaSave = document.getElementById("settings-ollama-save");
+  const webSearchToggle = document.getElementById(
+    "settings-web-search-toggle",
+  );
 
   function openSettings() {
     settingsHostInput.value = ollamaHost;
     settingsHostSave.textContent = "Save";
     settingsHostSave.classList.remove("saved");
+    settingsOllamaInput.value = ollamaApiKey || "";
+    webSearchToggle.checked = webSearchEnabled;
     // Sync select value to current state before opening
     if (selectedModel) modelSelectEl.value = selectedModel;
     updateThemeButtons();
@@ -595,6 +634,25 @@ document.addEventListener("DOMContentLoaded", async () => {
       settingsHostSave.classList.remove("saved");
     }, 2000);
     await connectToOllama();
+  });
+
+  // Unlike the host, saving an empty key is allowed: it clears the key, which
+  // together with the toggle is how web search gets switched off.
+  settingsOllamaSave.addEventListener("click", async () => {
+    const key = settingsOllamaInput.value.trim();
+    ollamaApiKey = key || null;
+    await chrome.storage.local.set({ ollamaApiKey });
+    settingsOllamaSave.textContent = "Saved";
+    settingsOllamaSave.classList.add("saved");
+    setTimeout(() => {
+      settingsOllamaSave.textContent = "Save";
+      settingsOllamaSave.classList.remove("saved");
+    }, 2000);
+  });
+
+  webSearchToggle.addEventListener("change", async () => {
+    webSearchEnabled = webSearchToggle.checked;
+    await chrome.storage.local.set({ webSearchEnabled });
   });
 
   document.querySelectorAll(".theme-btn").forEach((btn) => {
@@ -656,6 +714,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
+  // Web search goes through the background worker like page fetches; the
+  // sidepanel owns the key and passes it per request.
+  function runWebSearch(query, maxResults, apiKey) {
+    return new Promise((resolve) => {
+      chrome.runtime.sendMessage(
+        { action: "webSearch", query, maxResults, apiKey },
+        (response) => {
+          if (chrome.runtime.lastError || response?.error) {
+            resolve(
+              `Error searching the web: ${
+                chrome.runtime.lastError?.message || response?.error
+              }`,
+            );
+          } else {
+            resolve(formatSearchResults(response?.results));
+          }
+        },
+      );
+    });
+  }
+
   // Cap tool-call rounds per message so a model that keeps asking for more
   // pages can't loop forever.
   const MAX_TOOL_ROUNDS = 4;
@@ -694,6 +773,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       let transcript = "";
       let toolRounds = 0;
 
+      // Search is only offered when it is configured, so the model is never told
+      // about a tool it cannot actually use.
+      const searchOn = Boolean(webSearchEnabled && ollamaApiKey);
+      const tools = searchOn
+        ? [WEB_FETCH_TOOL, WEB_SEARCH_TOOL]
+        : [WEB_FETCH_TOOL];
+
       // Models without tool support can't fetch linked pages themselves, so pull
       // URLs mentioned in the message into the prompt up front.
       const urls = extractUrls(message);
@@ -730,9 +816,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       const compose = (text) =>
         transcript && text ? `${transcript}\n\n${text}` : transcript + text;
 
-      // Stream the answer, running web_fetch calls as the model emits them. The
-      // model decides when it has enough pages, so a review needing several
-      // files doesn't stop after the first one.
+      // Tool progress is written into the assistant message, the way the other
+      // extension shows it, instead of a chip next to the input. The next
+      // round's stream replaces it, and it never enters the saved transcript.
+      const showProgress = (text) =>
+        updateStreamingContent(streamingMessageId, compose(text));
+
+      // Stream the answer, running tool calls as the model emits them. The model
+      // decides when it has enough, so a review needing several files doesn't
+      // stop after the first one.
       const streamRound = (msgs, roundTools) =>
         fetchStreamingReply({
           streamingMessageId,
@@ -745,11 +837,12 @@ document.addEventListener("DOMContentLoaded", async () => {
           content,
           conversationHistory,
           tools: roundTools,
+          searchOn,
         });
 
       let result;
       try {
-        result = await streamRound(null, [WEB_FETCH_TOOL]);
+        result = await streamRound(null, tools);
       } catch (toolError) {
         // Some models or proxies reject the tools field outright
         console.warn("Request with tools failed, retrying without:", toolError);
@@ -768,9 +861,9 @@ document.addEventListener("DOMContentLoaded", async () => {
         });
 
         for (const toolCall of result.toolCalls) {
-          if (toolCall.function?.name !== "web_fetch") continue;
+          const name = toolCall.function?.name;
 
-          let args = toolCall.function.arguments;
+          let args = toolCall.function?.arguments;
           if (typeof args === "string") {
             try {
               args = JSON.parse(args);
@@ -779,32 +872,44 @@ document.addEventListener("DOMContentLoaded", async () => {
             }
           }
 
-          showContextLoading(`Fetching ${args.url}...`);
-          const fetched = await fetchUrlContent(args.url || "");
-          hideContextLoading();
+          let toolContent;
+          if (name === "web_search") {
+            showProgress(`Searching the web for "${args.query}"...`);
+            toolContent = await runWebSearch(
+              args.query,
+              args.max_results,
+              ollamaApiKey,
+            );
+          } else if (name === "web_fetch") {
+            showProgress(`Fetching ${args.url}...`);
+            const fetched = await fetchUrlContent(args.url || "");
+            toolContent =
+              fetched.content ||
+              `Error: ${fetched.error || "Failed to fetch page"}`;
+          } else {
+            continue; // unknown tool, nothing to report back
+          }
 
           // Ollama reads tool_name on tool results; a bare "name" is ignored
           messages.push({
             role: "tool",
-            content:
-              fetched.content ||
-              `Error: ${fetched.error || "Failed to fetch page"}`,
-            tool_name: toolCall.function.name,
+            content: toolContent,
+            tool_name: name,
             ...(toolCall.id ? { tool_call_id: toolCall.id } : {}),
           });
         }
 
-        result = await streamRound(messages, [WEB_FETCH_TOOL]);
+        result = await streamRound(messages, tools);
         transcript = compose(result.content);
       }
 
-      // Cap reached with the model still asking for pages: force an answer
+      // Cap reached with the model still asking for tools: force an answer
       if (result.toolCalls.length > 0) {
         messages = result.messages;
         messages.push({
           role: "user",
           content:
-            "You've reached the page-fetch limit. Answer now using the information you already have.",
+            "You've reached the limit for fetching and searching. Answer now using the information you already have.",
         });
         result = await streamRound(messages, []);
         transcript = compose(result.content);

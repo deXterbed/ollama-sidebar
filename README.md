@@ -19,13 +19,12 @@ A Chrome extension that brings your local Ollama models directly into your brows
 ## 🎯 How It Works
 
 1. **Install Ollama**: Get it from [ollama.com](https://ollama.com) and pull at least one model (e.g. `ollama pull qwen2.5`)
-2. **Allow the extension origin**: Set `OLLAMA_ORIGINS=chrome-extension://*` in your environment and restart Ollama (see [Requirements](#-requirements))
-3. **Install the Extension**: Load it unpacked from `dist/` (see [Development](#️-development))
-4. **Choose a Model**: Use the toolbar dropdown to select from your locally installed models
-5. **Choose Context Mode** (click the toolbar icon to cycle):
+2. **Install the Extension**: Load it unpacked from `dist/` (see [Development](#️-development))
+3. **Choose a Model**: Use the toolbar dropdown to select from your locally installed models
+4. **Choose Context Mode** (click the toolbar icon to cycle):
    - **No Context** — General conversations with your selected model
    - **Content Mode** — Analyzes webpage text and prepends it to your question
-6. **Ask Questions**: Get responses based on the current page, or paste any URL to ask about it
+5. **Ask Questions**: Get responses based on the current page, or paste any URL to ask about it
    - Tool-capable models (Qwen 2.5, Mistral, Llama 3.1+) can use the `web_fetch` tool to read pages on demand
    - Other models get URLs fetched eagerly and prepended to the prompt automatically
 
@@ -47,15 +46,17 @@ A Chrome extension that brings your local Ollama models directly into your brows
 ## 📋 Requirements
 
 - **[Ollama](https://ollama.com) installed and running** (`ollama serve`), with at least one model pulled
-- **`OLLAMA_ORIGINS` configured** to allow the extension to connect:
-  ```bash
-  # macOS/Linux
-  OLLAMA_ORIGINS=chrome-extension://* ollama serve
-
-  # Windows (PowerShell), then restart Ollama
-  [System.Environment]::SetEnvironmentVariable("OLLAMA_ORIGINS", "chrome-extension://*", "User")
-  ```
 - **Chrome browser**
+
+No origin configuration is needed: the extension drops the `Origin` header from its own requests. If you're on an older Ollama build, or the extension's request rule fails to install, `OLLAMA_ORIGINS=chrome-extension://*` still works as a fallback:
+
+```bash
+# macOS/Linux
+OLLAMA_ORIGINS=chrome-extension://* ollama serve
+
+# Windows (PowerShell), then restart Ollama
+[System.Environment]::SetEnvironmentVariable("OLLAMA_ORIGINS", "chrome-extension://*", "User")
+```
 
 ## ⌨️ Keyboard Shortcuts
 
